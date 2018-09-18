@@ -40,7 +40,7 @@ void dshotOutput(uint16_t throttle) {
     // append checksum
     packet = (packet << 4) | csum;
 
-    // delays are for ~dshot150
+    // delays are for ~dshot300
     for (int i = 0; i < 16; i++) {
         if (packet & 0x8000) {
             gpio_write_bit(GPIOC, 13, HIGH);

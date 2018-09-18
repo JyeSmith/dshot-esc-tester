@@ -1,9 +1,4 @@
-#define DEMCR_TRCENA    0x01000000
-#define DEMCR (*((volatile uint32_t *)0xE000EDFC))
-#define DWT_CTRL (*(volatile uint32_t *)0xe0001000)
-#define CYCCNTENA (1<<0)
-#define DWT_CYCCNT ((volatile uint32_t *)0xE0001004)
-#define CPU_CYCLES *DWT_CYCCNT
+#define DSHOT_COMMAND_DELAY_MS 1
 
 void setup() {
 
@@ -11,36 +6,24 @@ void setup() {
     pinMode(PC13, OUTPUT);
     // potentiometer input pin
     pinMode(PA0, INPUT_ANALOG);
-      
-    // setup for delayNanosecond()
-    DEMCR |= DEMCR_TRCENA;
-    *DWT_CYCCNT = 0;
-    DWT_CTRL |= CYCCNTENA;
 
     // output disarm signal while esc initialises
     uint16_t currentTime = millis();
-    while (millis() < currentTime + 5000) {
-        dshotOutput(0); 
-        delay(1);
+    while (millis() < currentTime + 2000) {
+        dshotOutput(0);
     }
+
 }
+
 void loop() {
 
-    uint16_t potentiometerReading = 0;
-    for (uint8_t i = 0; i < 15; i++) {
-      potentiometerReading += analogRead(PA0);
-    }
-    potentiometerReading /= 15;
-    
     dshotOutput(
-      map(potentiometerReading, 0, 4095, 48, 2047)
-      ); 
-      
-    delay(1);
+      map(analogRead(PA0), 0, 4095, 48, 2047)
+      );
 
 }
 
-uint16_t dshotOutput(uint16_t throttle) {
+void dshotOutput(uint16_t throttle) {
 
     // telemetry bit
     uint16_t packet = (throttle << 1) | 0;
@@ -57,38 +40,24 @@ uint16_t dshotOutput(uint16_t throttle) {
     // append checksum
     packet = (packet << 4) | csum;
 
-    uint16_t returnPacket = packet;
-
-    // delays are for dshot150
+    // delays are for ~dshot150
     for (int i = 0; i < 16; i++) {
-        gpio_write_bit(GPIOC, 13, HIGH);
-        delayNanoseconds(2500);
         if (packet & 0x8000) {
-            delayNanoseconds(2500);
+            gpio_write_bit(GPIOC, 13, HIGH);
+            delayMicroseconds(2);
             gpio_write_bit(GPIOC, 13, LOW);
+            delayMicroseconds(1);
         } else {
+            gpio_write_bit(GPIOC, 13, HIGH);
+            delayMicroseconds(1);
             gpio_write_bit(GPIOC, 13, LOW);
-            delayNanoseconds(2500);
+            delayMicroseconds(2);
         }
-        delayNanoseconds(1667);
         packet <<= 1;
     }
 
-    return returnPacket;
-}
-
-void delayNanoseconds(uint16_t delayTime) {
+    delay(DSHOT_COMMAND_DELAY_MS); // delay required between dshot packets
     
-    uint32_t endCycles = CPU_CYCLES + (delayTime / 72); // 72 MHz
-    
-    while (CPU_CYCLES < endCycles) {
-    }
-
     return;
+
 }
-
-
-
-
-
-

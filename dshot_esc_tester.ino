@@ -56,7 +56,7 @@ void dshotOutput(uint16_t throttle) {
         packet <<= 1;
     }
 
-    delay(DSHOT_COMMAND_DELAY_MS); // delay required between dshot packets
+    delayMicroseconds(DSHOT_COMMAND_DELAY_MS * 1000); // delay required between dshot packets
     
     return;
 

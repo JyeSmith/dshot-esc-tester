@@ -9,7 +9,7 @@ void setup() {
 
     // output disarm signal while esc initialises
     uint16_t currentTime = millis();
-    while (millis() < currentTime + 2000) {
+    while (millis() < currentTime + 5000) {
         dshotOutput(0);
     }
 

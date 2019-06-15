@@ -1,67 +1,295 @@
+/*
+ * ----------------------------------------------------------------------------
+ * "THE PROP-WARE LICENSE" (Revision 42):
+ * <https://github.com/JyeSmith> wrote this file.  As long as you retain this notice you
+ * can do whatever you want with this stuff. If we meet some day, and you think
+ * this stuff is worth it, you can buy me some props in return.   Jye Smith
+ * ----------------------------------------------------------------------------
+ */
 
+/* Some of the below code is taken from examples provided by Felix on RCGroups.com
+ * 
+ * KISS ESC 24A Serial Example Code for Arduino.
+ * https://www.rcgroups.com/forums/showthread.php?2555162-KISS-ESC-24A-Race-Edition-Flyduino-32bit-ESC
+ * https://www.rcgroups.com/forums/showatt.php?attachmentid=8521072&d=1450345654 * 
+ */
+
+#include <HardwareSerial.h>
+#include "SSD1306.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "Arduino.h"
 #include "esp32-hal.h"
 
-#define POTENTIOMETER_PIN 4
+#define MOTOR_POLES 14
 
 rmt_data_t dshotPacket[16];
-rmt_data_t dshotTelemetry[16];
-
 rmt_obj_t* rmt_send = NULL;
+
+HardwareSerial MySerial(1);
+
+SSD1306  display(0x3c, 21, 22);  // 21 and 22 are default pins
+
+uint32_t newtime;
+uint8_t receivedBytes = 0;
+bool requestTelemetry = false;
+uint16_t dshotUserInputValue = 0;
+int16_t ESC_telemetrie[5]; // Temperature, Voltage, Current, used mAh, eRpM
+
+uint8_t temperature = 0;
+uint8_t temperatureMax = 0;
+float voltage = 0;
+float voltageMin = 99;
+uint32_t current = 0;
+uint32_t currentMax = 0;
+uint32_t erpm = 0;
+uint32_t erpmMax = 0;
+uint32_t rpm = 0;
+uint32_t rpmMAX = 0;
+uint32_t kv = 0;
+uint32_t kvMax = 0;
+
+void gotTouch8(){
+    dshotUserInputValue = 0;
+    } // DIGITAL_CMD_MOTOR_STOP
+void gotTouch9(){
+    dshotUserInputValue = 247;
+    resetMaxMinValues();
+    } // 10%
+void gotTouch7(){
+    dshotUserInputValue = 447;
+    resetMaxMinValues();
+    } // 20%
+void gotTouch6(){
+    dshotUserInputValue = 1047;
+    resetMaxMinValues();
+    } // 50%
+void gotTouch5(){ 
+    dshotUserInputValue = 2047;                 
+    resetMaxMinValues();
+    } // 100%
+void gotTouch4(){ 
+    temperatureMax = 0;
+    voltageMin = 99;
+    currentMax = 0;
+    erpmMax = 0;
+    rpmMAX = 0;
+    kvMax = 0;
+}
+void resetMaxMinValues() {
+    gotTouch4();
+}
 
 void setup() {
 
     Serial.begin(115200);
-    
-    // potentiometer input pin
-    pinMode(POTENTIOMETER_PIN, INPUT);
+    MySerial.begin(115200, SERIAL_8N1, 16, 17);
 
-    if ((rmt_send = rmtInit(12, true, RMT_MEM_64)) == NULL) {
+    if ((rmt_send = rmtInit(5, true, RMT_MEM_64)) == NULL) {
         Serial.println("init sender failed\n");
     }
 
     float realTick = rmtSetTick(rmt_send, 12.5); // 12.5ns sample rate
-    Serial.printf("real tick set to: %fns\n", realTick);
-    
-    // output disarm signal while esc initialises
-    uint16_t currentTime = millis();
-    while (millis() < currentTime + 2000) {
-        dshotOutput(0, false);
-    }
+    Serial.printf("rmt_send tick set to: %fns\n", realTick);
 
-    // 33 DIGITAL_CMD_SIGNAL_LINE_TELEMETRY_ENABLE  // Need 6x, no wait required. Enables commands 42 to 47
-    for (int i = 0; i < 6; i++) {
-        dshotOutput(33, false); 
+    display.init();
+    display.flipScreenVertically();
+    display.setFont(ArialMT_Plain_10); 
+    
+    // Output disarm signal while esc initialises and do some display stuff.
+    uint8_t xbeep = random(15, 100);
+    uint8_t ybeep = random(15, 50);
+    uint8_t ibeep = 0;
+    while (millis() < 3500) {
+        dshotOutput(0, false);
+        delay(1);  
+        
+        display.clear();            
+        ibeep++; 
+        if (ibeep == 100) {
+            ibeep = 0;
+            xbeep = random(15, 50);
+            ybeep = random(15, 50);
+        }
+        display.drawString(xbeep, ybeep, "beep");
+        if (millis() < 500) {         
+            display.drawString(0, 0, "Initialising ESC... 4s");
+        } else if (millis() < 1500) {   
+            display.drawString(0, 0, "Initialising ESC... 3s");
+        } else if (millis() < 2500) {  
+            display.drawString(0, 0, "Initialising ESC... 2s");
+        } else {                
+            display.drawString(0, 0, "Initialising ESC... 1s");
+        }
+        display.display(); 
     }
+    
+    touchAttachInterrupt(T4, gotTouch4, 40);
+    touchAttachInterrupt(T5, gotTouch5, 40);
+    touchAttachInterrupt(T6, gotTouch6, 40);
+    touchAttachInterrupt(T7, gotTouch7, 40);
+    touchAttachInterrupt(T8, gotTouch8, 40);
+    touchAttachInterrupt(T9, gotTouch9, 40);
+
+    // Empty Rx Serial of garbage telemtry
+    while(MySerial.available())
+        MySerial.read();
+
+    newtime = millis() + 1; 
+    
+    requestTelemetry = true;
     
 }
 
 void loop() {
 
-    int potentiometer = analogRead(POTENTIOMETER_PIN);
-    
-    if (potentiometer < 50) {
-        dshotOutput(0, false);
-    } else {
-        dshotOutput(
-          map(potentiometer, 0, 4095, 48, 2047),
-          false
-        );
+    if (millis() > newtime) {
+ 
+        if (requestTelemetry) {                
+            dshotOutput(dshotUserInputValue, true);
+            requestTelemetry = false;
+            receivedBytes = 0;
+            updateDisplay();
+  
+        } else {
+            dshotOutput(dshotUserInputValue, false);
+            receiveTelemtrie();
+        }
+
+        newtime ++;        
     }
-//    dshotOutput(300, false); // test output with no potentiometer
 
-//42 DIGITAL_CMD_SIGNAL_LINE_TEMPERATURE_TELEMETRY      // No wait required 
-//43 DIGITAL_CMD_SIGNAL_LINE_VOLTAGE_TELEMETRY          // No wait required 
-//44 DIGITAL_CMD_SIGNAL_LINE_CURRENT_TELEMETRY          // No wait required 
-//45 DIGITAL_CMD_SIGNAL_LINE_CONSUMPTION_TELEMETRY      // No wait required 
-//46 DIGITAL_CMD_SIGNAL_LINE_ERPM_TELEMETRY             // No wait required 
-//47 DIGITAL_CMD_SIGNAL_LINE_ERPM_PERIOD_TELEMETRY      // No wait required 
+}
 
-//    dshotOutput(42, true);
-         
+void updateDisplay() {    
+    display.clear();
+              
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.drawString(0,  0, "Dshot Packet");
+    display.drawString(0, 10, "Temp C");
+    display.drawString(0, 20, "Volt");
+    display.drawString(0, 30, "mA");
+    display.drawString(0, 40, "eRPM");
+    display.drawString(0, 50, "KV");
+    
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(80, 10, String(temperature));
+    display.drawString(80, 20, String(voltage));
+    display.drawString(80, 30, String(current));
+    display.drawString(80, 40, String(erpm));
+    display.drawString(80, 50, String(kv));
+    
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(128,  0, String(dshotUserInputValue));
+    display.drawString(128, 10, String(temperatureMax));
+    display.drawString(128, 20, String(voltageMin));
+    display.drawString(128, 30, String(currentMax));
+    display.drawString(128, 40, String(erpmMax));
+    display.drawString(128, 50, String(kvMax));
+    
+    display.display();  
+}
+
+void receiveTelemtrie(){
+    static uint8_t SerialBuf[10];
+    
+    if(receivedBytes < 9){ // collect bytes
+    
+        while(MySerial.available()){
+            SerialBuf[receivedBytes] = MySerial.read();
+            receivedBytes++;
+        }
+        if(receivedBytes == 10){ // transmission complete
+          
+            uint8_t crc8 = get_crc8(SerialBuf, 9); // get the 8 bit CRC
+          
+            if(crc8 != SerialBuf[9]) {
+                Serial.println("CRC transmission failure");
+                return; // transmission failure 
+            }
+          
+            // compute the received values
+            ESC_telemetrie[0] = SerialBuf[0]; // temperature
+            ESC_telemetrie[1] = (SerialBuf[1]<<8)|SerialBuf[2]; // voltage
+            ESC_telemetrie[2] = (SerialBuf[3]<<8)|SerialBuf[4]; // Current
+            ESC_telemetrie[3] = (SerialBuf[5]<<8)|SerialBuf[6]; // used mA/h
+            ESC_telemetrie[4] = (SerialBuf[7]<<8)|SerialBuf[8]; // eRpM *100
+                  
+    //      Serial.println("Requested Telemetrie");
+    //      Serial.print("Temperature (C): ");
+    //      Serial.println(ESC_telemetrie[0]); 
+    //      Serial.print("Voltage (V): ");
+    //      Serial.println(ESC_telemetrie[1] / 100.0);   
+    //      Serial.print("Current (mA): ");
+    //      Serial.println(ESC_telemetrie[2] * 100); 
+    //      Serial.print("mA/h: ");
+    //      Serial.println(ESC_telemetrie[3] * 10);   
+    //      Serial.print("eRPM : ");
+    //      Serial.println(ESC_telemetrie[4] * 100);  
+    //      Serial.print("RPM : ");
+    //      Serial.println(ESC_telemetrie[4] * 100 / 7.0);  // 7 = 14 magnet count / 2
+    //      Serial.print("KV : ");
+    //      Serial.println( (ESC_telemetrie[4] * 100 / 7.0) / (ESC_telemetrie[1] / 100.0) );  // 7 = 14 magnet count / 2
+    //      Serial.println(" ");
+    //      Serial.println(" ");
+          
+            temperature = 0.9*temperature + 0.1*ESC_telemetrie[0];
+            if (temperature > temperatureMax) {
+                temperatureMax = temperature;
+            }
+            
+            voltage = 0.9*voltage + 0.1*(ESC_telemetrie[1] / 100.0);
+            if (voltage < voltageMin) {
+                voltageMin = voltage;
+            }
+            
+            current = 0.9*current + 0.1*(ESC_telemetrie[2] * 100);
+            if (current > currentMax) {
+                currentMax = current;
+            }
+            
+            erpm = 0.9*erpm + 0.1*(ESC_telemetrie[4] * 100);
+            if (erpm > erpmMax) {
+                erpmMax = erpm;
+            }
+            
+            rpm = erpm / (MOTOR_POLES / 2);
+            if (rpm > rpmMAX) {
+                rpmMAX = rpm;
+            }
+            
+            if (rpm) {                  // Stops weird numbers :|
+                kv = rpm / voltage;
+            } else {
+                kv = 0;
+            }
+            if (kv > kvMax) {
+                kvMax = kv;
+            }
+
+            requestTelemetry = true;
+          
+        }
+    
+    }
+
+  return;
+  
+}
+
+uint8_t update_crc8(uint8_t crc, uint8_t crc_seed){
+  uint8_t crc_u, i;
+  crc_u = crc;
+  crc_u ^= crc_seed;
+  for ( i=0; i<8; i++) crc_u = ( crc_u & 0x80 ) ? 0x7 ^ ( crc_u << 1 ) : ( crc_u << 1 );
+  return (crc_u);
+}
+
+uint8_t get_crc8(uint8_t *Buf, uint8_t BufLen){
+  uint8_t crc = 0, i;
+  for( i=0; i<BufLen; i++) crc = update_crc8(Buf[i], crc);
+  return (crc);
 }
 
 void dshotOutput(uint16_t value, bool telemetry) {
@@ -75,16 +303,14 @@ void dshotOutput(uint16_t value, bool telemetry) {
         packet = (value << 1) | 0;
     }
 
-    // compute checksum
     // https://github.com/betaflight/betaflight/blob/09b52975fbd8f6fcccb22228745d1548b8c3daab/src/main/drivers/pwm_output.c#L523
     int csum = 0;
     int csum_data = packet;
     for (int i = 0; i < 3; i++) {
-        csum ^=  csum_data;   // xor data by nibbles
+        csum ^=  csum_data;
         csum_data >>= 4;
     }
     csum &= 0xf;
-    // append checksum
     packet = (packet << 4) | csum;
 
     // durations are for dshot600
@@ -109,8 +335,6 @@ void dshotOutput(uint16_t value, bool telemetry) {
     
     rmtWrite(rmt_send, dshotPacket, 16);
     
-    delayMicroseconds(250);  // delay for ~4kHz loop
-        
     return;
 
 }

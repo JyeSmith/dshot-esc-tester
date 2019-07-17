@@ -139,10 +139,12 @@ void setup() {
     newtime = millis() + 1; 
     
     requestTelemetry = true;
-    
+    BeginWebUpdate();
 }
 
 void loop() {
+
+    HandleWebUpdate();
 
     if (millis() > newtime) {
  

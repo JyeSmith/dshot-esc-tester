@@ -24,16 +24,19 @@
 
 #define MOTOR_POLES 14
 
+TaskHandle_t Task1;
+
 rmt_data_t dshotPacket[16];
 rmt_obj_t* rmt_send = NULL;
+
+hw_timer_t * timer = NULL;
 
 HardwareSerial MySerial(1);
 
 SSD1306  display(0x3c, 21, 22);  // 21 and 22 are default pins
 
-uint32_t newtime;
 uint8_t receivedBytes = 0;
-bool requestTelemetry = false;
+volatile bool requestTelemetry = false;
 uint16_t dshotUserInputValue = 0;
 int16_t ESC_telemetrie[5]; // Temperature, Voltage, Current, used mAh, eRpM
 
@@ -81,6 +84,33 @@ void resetMaxMinValues() {
     gotTouch4();
 }
 
+void IRAM_ATTR getTelemetry(){
+    requestTelemetry = true;        
+}
+
+void startTelemetryTimer() {
+    timer = timerBegin(0, 80, true); // timer_id = 0; divider=80; countUp = true;
+    timerAttachInterrupt(timer, &getTelemetry, true); // edge = true
+    timerAlarmWrite(timer, 20000, true);  //1000 = 1 ms
+    timerAlarmEnable(timer);
+}
+
+// Second core used to handle dshot packets
+void secondCoreTask( void * pvParameters ){
+    while(1){
+      
+        dshotOutput(dshotUserInputValue, requestTelemetry);
+    
+        if (requestTelemetry) {                
+            requestTelemetry = false;
+            receivedBytes = 0;
+        }
+        
+        delay(1);
+        
+    } 
+}
+
 void setup() {
 
     Serial.begin(115200);
@@ -92,7 +122,7 @@ void setup() {
 
     float realTick = rmtSetTick(rmt_send, 12.5); // 12.5ns sample rate
     Serial.printf("rmt_send tick set to: %fns\n", realTick);
-
+  
     display.init();
     display.flipScreenVertically();
     display.setFont(ArialMT_Plain_10); 
@@ -135,79 +165,48 @@ void setup() {
     // Empty Rx Serial of garbage telemtry
     while(MySerial.available())
         MySerial.read();
-
-    newtime = millis() + 1; 
     
     requestTelemetry = true;
+    
     BeginWebUpdate();
+
+    startTelemetryTimer(); // Timer used to request tlm continually in case ESC rcv bad packet
+    
+    xTaskCreatePinnedToCore(secondCoreTask, "Task1", 10000, NULL, 1, &Task1, 0); 
+
 }
 
 void loop() {
 
     HandleWebUpdate();
 
-    if (millis() > newtime) {
- 
-        if (requestTelemetry) {                
-            dshotOutput(dshotUserInputValue, true);
-            requestTelemetry = false;
-            receivedBytes = 0;
-            updateDisplay();
-  
-        } else {
-            dshotOutput(dshotUserInputValue, false);
-            receiveTelemtrie();
-        }
-
-        newtime ++;        
+    if(!requestTelemetry) {
+         receiveTelemtrie();
     }
-
-}
-
-void updateDisplay() {    
-    display.clear();
-              
-    display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.drawString(0,  0, "Dshot Packet");
-    display.drawString(0, 10, "Temp C");
-    display.drawString(0, 20, "Volt");
-    display.drawString(0, 30, "mA");
-    display.drawString(0, 40, "eRPM");
-    display.drawString(0, 50, "KV");
     
-    display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(80, 10, String(temperature));
-    display.drawString(80, 20, String(voltage));
-    display.drawString(80, 30, String(current));
-    display.drawString(80, 40, String(erpm));
-    display.drawString(80, 50, String(kv));
-    
-    display.setTextAlignment(TEXT_ALIGN_RIGHT);
-    display.drawString(128,  0, String(dshotUserInputValue));
-    display.drawString(128, 10, String(temperatureMax));
-    display.drawString(128, 20, String(voltageMin));
-    display.drawString(128, 30, String(currentMax));
-    display.drawString(128, 40, String(erpmMax));
-    display.drawString(128, 50, String(kvMax));
-    
-    display.display();  
 }
 
 void receiveTelemtrie(){
     static uint8_t SerialBuf[10];
-    
-    if(receivedBytes < 9){ // collect bytes
-    
-        while(MySerial.available()){
+
+        if(MySerial.available()){
             SerialBuf[receivedBytes] = MySerial.read();
             receivedBytes++;
         }
-        if(receivedBytes == 10){ // transmission complete
+
+        if(receivedBytes > 9){ // transmission complete
           
             uint8_t crc8 = get_crc8(SerialBuf, 9); // get the 8 bit CRC
           
             if(crc8 != SerialBuf[9]) {
                 Serial.println("CRC transmission failure");
+                
+                // Empty Rx Serial of garbage telemtry
+                while(MySerial.available())
+                    MySerial.read();
+                
+                requestTelemetry = true;
+            
                 return; // transmission failure 
             }
           
@@ -270,32 +269,17 @@ void receiveTelemtrie(){
                 kvMax = kv;
             }
 
+            updateDisplay();
             requestTelemetry = true;
           
         }
-    
-    }
 
   return;
   
 }
 
-uint8_t update_crc8(uint8_t crc, uint8_t crc_seed){
-  uint8_t crc_u, i;
-  crc_u = crc;
-  crc_u ^= crc_seed;
-  for ( i=0; i<8; i++) crc_u = ( crc_u & 0x80 ) ? 0x7 ^ ( crc_u << 1 ) : ( crc_u << 1 );
-  return (crc_u);
-}
-
-uint8_t get_crc8(uint8_t *Buf, uint8_t BufLen){
-  uint8_t crc = 0, i;
-  for( i=0; i<BufLen; i++) crc = update_crc8(Buf[i], crc);
-  return (crc);
-}
-
 void dshotOutput(uint16_t value, bool telemetry) {
-
+    
     uint16_t packet;
     
     // telemetry bit    
@@ -339,4 +323,47 @@ void dshotOutput(uint16_t value, bool telemetry) {
     
     return;
 
+}
+
+uint8_t update_crc8(uint8_t crc, uint8_t crc_seed){
+  uint8_t crc_u, i;
+  crc_u = crc;
+  crc_u ^= crc_seed;
+  for ( i=0; i<8; i++) crc_u = ( crc_u & 0x80 ) ? 0x7 ^ ( crc_u << 1 ) : ( crc_u << 1 );
+  return (crc_u);
+}
+
+uint8_t get_crc8(uint8_t *Buf, uint8_t BufLen){
+  uint8_t crc = 0, i;
+  for( i=0; i<BufLen; i++) crc = update_crc8(Buf[i], crc);
+  return (crc);
+}
+
+void updateDisplay() {    
+    display.clear();
+              
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.drawString(0,  0, "Dshot Packet");
+    display.drawString(0, 10, "Temp C");
+    display.drawString(0, 20, "Volt");
+    display.drawString(0, 30, "mA");
+    display.drawString(0, 40, "eRPM");
+    display.drawString(0, 50, "KV");
+    
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(80, 10, String(temperature));
+    display.drawString(80, 20, String(voltage));
+    display.drawString(80, 30, String(current));
+    display.drawString(80, 40, String(erpm));
+    display.drawString(80, 50, String(kv));
+    
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    display.drawString(128,  0, String(dshotUserInputValue));
+    display.drawString(128, 10, String(temperatureMax));
+    display.drawString(128, 20, String(voltageMin));
+    display.drawString(128, 30, String(currentMax));
+    display.drawString(128, 40, String(erpmMax));
+    display.drawString(128, 50, String(kvMax));
+    
+    display.display();  
 }

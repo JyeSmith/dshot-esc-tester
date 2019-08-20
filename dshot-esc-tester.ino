@@ -21,8 +21,15 @@
 #include "freertos/event_groups.h"
 #include "Arduino.h"
 #include "esp32-hal.h"
+#include "HX711.h"
 
 #define MOTOR_POLES 14
+
+// HX711
+#define LOADCELL_DOUT_PIN     25
+#define LOADCELL_SCK_PIN      26
+#define LOADCELL_CALIBRATION  200.0
+HX711 loadcell;
 
 TaskHandle_t Task1;
 
@@ -116,6 +123,10 @@ void setup() {
     Serial.begin(115200);
     MySerial.begin(115200, SERIAL_8N1, 16, 17);
 
+    loadcell.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+    loadcell.set_scale(LOADCELL_CALIBRATION);
+    loadcell.tare();  
+    
     if ((rmt_send = rmtInit(5, true, RMT_MEM_64)) == NULL) {
         Serial.println("init sender failed\n");
     }
@@ -183,7 +194,7 @@ void loop() {
     if(!requestTelemetry) {
          receiveTelemtrie();
     }
-    
+
 }
 
 void receiveTelemtrie(){
@@ -234,6 +245,33 @@ void receiveTelemtrie(){
     //      Serial.println( (ESC_telemetrie[4] * 100 / 7.0) / (ESC_telemetrie[1] / 100.0) );  // 7 = 14 magnet count / 2
     //      Serial.println(" ");
     //      Serial.println(" ");
+
+
+          Serial.print(millis()); 
+          Serial.print(","); 
+    //      Serial.print("Temperature (C): ");
+          Serial.print(ESC_telemetrie[0]); 
+          Serial.print(","); 
+    //      Serial.print("Voltage (V): ");
+          Serial.print(ESC_telemetrie[1] / 100.0); 
+          Serial.print(",");   
+    //      Serial.print("Current (mA): ");
+          Serial.print(ESC_telemetrie[2] * 100); 
+          Serial.print(","); 
+    //      Serial.print("mA/h: ");
+          Serial.print(ESC_telemetrie[3] * 10);  
+          Serial.print(",");  
+    //      Serial.print("eRPM : ");
+          Serial.print(ESC_telemetrie[4] * 100); 
+          Serial.print(",");  
+          
+          if (loadcell.is_ready()) {
+              long reading = loadcell.get_units(1);
+              Serial.println(reading);
+          } else {
+              Serial.println();
+          }
+
           
             temperature = 0.9*temperature + 0.1*ESC_telemetrie[0];
             if (temperature > temperatureMax) {

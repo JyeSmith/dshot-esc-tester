@@ -14,6 +14,13 @@
  * https://www.rcgroups.com/forums/showatt.php?attachmentid=8521072&d=1450345654 * 
  */
 
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// www.miniquadtestbench.com
+// Uncommenting the below define will start the test sequence defined on MQTB
+// WARNING - THE MOTOR WILL START TO SPIN AUTOMATICALLY!!!
+//#define MINIQUADTESTBENCH
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 #include <HardwareSerial.h>
 #include "SSD1306.h"
 #include "freertos/FreeRTOS.h"
@@ -45,9 +52,16 @@ SSD1306  display(0x3c, 21, 22);  // 21 and 22 are default pins
 
 uint8_t receivedBytes = 0;
 volatile bool requestTelemetry = false;
+bool printTelemetry = true;
 uint16_t dshotUserInputValue = 0;
+uint16_t dshotmin = 48;
+uint16_t dshotmax = 2047;
+uint16_t dshotidle = dshotmin + round(3.5*(dshotmax-dshotmin)/100); // 3.5%
+uint16_t dshot50 =   dshotmin + round(50*(dshotmax-dshotmin)/100); // 50%
+uint16_t dshot75 =   dshotmin + round(75*(dshotmax-dshotmin)/100); // 75%
 int16_t ESC_telemetrie[5]; // Temperature, Voltage, Current, used mAh, eRpM
 
+uint32_t currentTime;
 uint8_t temperature = 0;
 uint8_t temperatureMax = 0;
 float voltage = 0;
@@ -186,18 +200,22 @@ void setup() {
     
     xTaskCreatePinnedToCore(secondCoreTask, "Task1", 10000, NULL, 1, &Task1, 0); 
 
+    Serial.print("Time (ms)"); 
+    Serial.print(","); 
+    Serial.print("dshot"); 
+    Serial.print(",");  
+    Serial.print("Voltage (V)");
+    Serial.print(",");   
+    Serial.print("Current (mA)");
+    Serial.print(",");
+    Serial.print("eRPM");
+    Serial.print(",");  
+    Serial.println("Thrust (g)");
 
-            Serial.print("Time (ms)"); 
-            Serial.print(","); 
-            Serial.print("dshot"); 
-            Serial.print(",");  
-            Serial.print("Voltage (V)");
-            Serial.print(",");   
-            Serial.print("Current (mA)");
-            Serial.print(",");
-            Serial.print("eRPM");
-            Serial.print(",");  
-            Serial.println("Thrust (g)");
+#ifdef MINIQUADTESTBENCH   
+    dshotUserInputValue = dshotidle;
+#endif
+
 }
 
 void loop() {
@@ -209,6 +227,30 @@ void loop() {
     } else if(loadcell.is_ready()) {
         thrust = loadcell.get_units(1);
     }
+
+#ifdef MINIQUADTESTBENCH
+    currentTime = millis();
+    if(currentTime >= 4000 && currentTime < 6000) {
+        dshotUserInputValue = dshot50;
+    } else if(currentTime >= 6000 && currentTime < 8000) {
+        dshotUserInputValue = dshotidle;
+    } else if(currentTime >= 8000 && currentTime < 10000) {
+        dshotUserInputValue = dshot75;
+    } else if(currentTime >= 10000 && currentTime < 12000) {
+        dshotUserInputValue = dshotidle;
+    } else if(currentTime >= 12000 && currentTime < 14000) {
+        dshotUserInputValue = dshotmax;
+    } else if(currentTime >= 14000 && currentTime < 16000) {
+        dshotUserInputValue = dshotmin;
+    } else if(currentTime >= 16000 && currentTime < 22000) {      
+        dshotUserInputValue = dshotmin + (currentTime-16000)*(dshotmax-dshotmin)/6000.0;        
+    } else if(currentTime >= 24000 && currentTime < 26000) {
+        dshotUserInputValue = dshotidle;
+    } else if(currentTime >= 26000 && currentTime < 28000) {
+        printTelemetry = false;
+        dshotUserInputValue = 0;
+    } 
+#endif
 
 }
 
@@ -261,22 +303,23 @@ void receiveTelemtrie(){
     //      Serial.println(" ");
     //      Serial.println(" ");
 
-  
-            Serial.print(millis()); 
-            Serial.print(","); 
-            Serial.print(dshotUserInputValue); 
-            Serial.print(",");
-      //      Serial.print("Voltage (V): ");
-            Serial.print(ESC_telemetrie[1] / 100.0); 
-            Serial.print(",");   
-      //      Serial.print("Current (mA): ");
-            Serial.print(ESC_telemetrie[2] * 100); 
-            Serial.print(","); 
-      //      Serial.print("eRPM : ");
-            Serial.print(ESC_telemetrie[4] * 100); 
-            Serial.print(",");  
-            // Thrust
-            Serial.println(thrust);
+            if(printTelemetry) {
+                Serial.print(millis()); 
+                Serial.print(","); 
+                Serial.print(dshotUserInputValue); 
+                Serial.print(",");
+          //      Serial.print("Voltage (V): ");
+                Serial.print(ESC_telemetrie[1] / 100.0); 
+                Serial.print(",");   
+          //      Serial.print("Current (mA): ");
+                Serial.print(ESC_telemetrie[2] * 100); 
+                Serial.print(","); 
+          //      Serial.print("eRPM : ");
+                Serial.print(ESC_telemetrie[4] * 100); 
+                Serial.print(",");  
+                // Thrust
+                Serial.println(thrust);
+            }
           
             temperature = 0.9*temperature + 0.1*ESC_telemetrie[0];
             if (temperature > temperatureMax) {

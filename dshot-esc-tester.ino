@@ -28,8 +28,9 @@
 // HX711
 #define LOADCELL_DOUT_PIN     25
 #define LOADCELL_SCK_PIN      26
-#define LOADCELL_CALIBRATION  200.0
+#define LOADCELL_CALIBRATION  345.0
 HX711 loadcell;
+long thrust = 0;
 
 TaskHandle_t Task1;
 
@@ -185,6 +186,18 @@ void setup() {
     
     xTaskCreatePinnedToCore(secondCoreTask, "Task1", 10000, NULL, 1, &Task1, 0); 
 
+
+            Serial.print("Time (ms)"); 
+            Serial.print(","); 
+            Serial.print("dshot"); 
+            Serial.print(",");  
+            Serial.print("Voltage (V)");
+            Serial.print(",");   
+            Serial.print("Current (mA)");
+            Serial.print(",");
+            Serial.print("eRPM");
+            Serial.print(",");  
+            Serial.println("Thrust (g)");
 }
 
 void loop() {
@@ -193,6 +206,8 @@ void loop() {
 
     if(!requestTelemetry) {
          receiveTelemtrie();
+    } else if(loadcell.is_ready()) {
+        thrust = loadcell.get_units(1);
     }
 
 }
@@ -210,7 +225,7 @@ void receiveTelemtrie(){
             uint8_t crc8 = get_crc8(SerialBuf, 9); // get the 8 bit CRC
           
             if(crc8 != SerialBuf[9]) {
-                Serial.println("CRC transmission failure");
+//                Serial.println("CRC transmission failure");
                 
                 // Empty Rx Serial of garbage telemtry
                 while(MySerial.available())
@@ -246,32 +261,22 @@ void receiveTelemtrie(){
     //      Serial.println(" ");
     //      Serial.println(" ");
 
-
-          Serial.print(millis()); 
-          Serial.print(","); 
-    //      Serial.print("Temperature (C): ");
-          Serial.print(ESC_telemetrie[0]); 
-          Serial.print(","); 
-    //      Serial.print("Voltage (V): ");
-          Serial.print(ESC_telemetrie[1] / 100.0); 
-          Serial.print(",");   
-    //      Serial.print("Current (mA): ");
-          Serial.print(ESC_telemetrie[2] * 100); 
-          Serial.print(","); 
-    //      Serial.print("mA/h: ");
-          Serial.print(ESC_telemetrie[3] * 10);  
-          Serial.print(",");  
-    //      Serial.print("eRPM : ");
-          Serial.print(ESC_telemetrie[4] * 100); 
-          Serial.print(",");  
-          
-          if (loadcell.is_ready()) {
-              long reading = loadcell.get_units(1);
-              Serial.println(reading);
-          } else {
-              Serial.println();
-          }
-
+  
+            Serial.print(millis()); 
+            Serial.print(","); 
+            Serial.print(dshotUserInputValue); 
+            Serial.print(",");
+      //      Serial.print("Voltage (V): ");
+            Serial.print(ESC_telemetrie[1] / 100.0); 
+            Serial.print(",");   
+      //      Serial.print("Current (mA): ");
+            Serial.print(ESC_telemetrie[2] * 100); 
+            Serial.print(","); 
+      //      Serial.print("eRPM : ");
+            Serial.print(ESC_telemetrie[4] * 100); 
+            Serial.print(",");  
+            // Thrust
+            Serial.println(thrust);
           
             temperature = 0.9*temperature + 0.1*ESC_telemetrie[0];
             if (temperature > temperatureMax) {

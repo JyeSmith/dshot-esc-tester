@@ -60,6 +60,7 @@ uint16_t dshotidle = dshotmin + round(3.5*(dshotmax-dshotmin)/100); // 3.5%
 uint16_t dshot50 =   dshotmin + round(50*(dshotmax-dshotmin)/100); // 50%
 uint16_t dshot75 =   dshotmin + round(75*(dshotmax-dshotmin)/100); // 75%
 int16_t ESC_telemetrie[5]; // Temperature, Voltage, Current, used mAh, eRpM
+bool runMQTBSequence = false;
 
 uint32_t currentTime;
 uint8_t temperature = 0;
@@ -77,22 +78,32 @@ uint32_t kvMax = 0;
 
 void gotTouch8(){
     dshotUserInputValue = 0;
+    runMQTBSequence = false;
+    printTelemetry = true;
     } // DIGITAL_CMD_MOTOR_STOP
 void gotTouch9(){
     dshotUserInputValue = 247;
     resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
     } // 10%
 void gotTouch7(){
     dshotUserInputValue = 447;
     resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
     } // 20%
 void gotTouch6(){
     dshotUserInputValue = 1047;
     resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
     } // 50%
 void gotTouch5(){ 
     dshotUserInputValue = 2047;                 
     resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
     } // 100%
 void gotTouch4(){ 
     temperatureMax = 0;
@@ -101,6 +112,8 @@ void gotTouch4(){
     erpmMax = 0;
     rpmMAX = 0;
     kvMax = 0;
+    runMQTBSequence = false;
+    printTelemetry = true;
 }
 void resetMaxMinValues() {
     gotTouch4();
@@ -206,14 +219,19 @@ void setup() {
     Serial.print(",");  
     Serial.print("Voltage (V)");
     Serial.print(",");   
-    Serial.print("Current (mA)");
+    Serial.print("Current (A)");
     Serial.print(",");
-    Serial.print("eRPM");
+    Serial.print("RPM");
     Serial.print(",");  
     Serial.println("Thrust (g)");
 
 #ifdef MINIQUADTESTBENCH   
     dshotUserInputValue = dshotidle;
+    runMQTBSequence = true;     
+    display.clear();              
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.drawString(0,  0, "Running MQTB Sequence...");    
+    display.display(); 
 #endif
 
 }
@@ -222,34 +240,38 @@ void loop() {
 
     HandleWebUpdate();
 
-    if(!requestTelemetry) {
-         receiveTelemtrie();
-    } else if(loadcell.is_ready()) {
+    if(loadcell.is_ready()) {
         thrust = loadcell.get_units(1);
     }
-
-#ifdef MINIQUADTESTBENCH
-    currentTime = millis();
-    if(currentTime >= 4000 && currentTime < 6000) {
-        dshotUserInputValue = dshot50;
-    } else if(currentTime >= 6000 && currentTime < 8000) {
-        dshotUserInputValue = dshotidle;
-    } else if(currentTime >= 8000 && currentTime < 10000) {
-        dshotUserInputValue = dshot75;
-    } else if(currentTime >= 10000 && currentTime < 12000) {
-        dshotUserInputValue = dshotidle;
-    } else if(currentTime >= 12000 && currentTime < 14000) {
-        dshotUserInputValue = dshotmax;
-    } else if(currentTime >= 14000 && currentTime < 16000) {
-        dshotUserInputValue = dshotmin;
-    } else if(currentTime >= 16000 && currentTime < 22000) {      
-        dshotUserInputValue = dshotmin + (currentTime-16000)*(dshotmax-dshotmin)/6000.0;        
-    } else if(currentTime >= 24000 && currentTime < 26000) {
-        dshotUserInputValue = dshotidle;
-    } else if(currentTime >= 26000 && currentTime < 28000) {
-        printTelemetry = false;
-        dshotUserInputValue = 0;
+    
+    if(!requestTelemetry) {
+         receiveTelemtrie();
     } 
+    
+#ifdef MINIQUADTESTBENCH
+    if(runMQTBSequence) {
+        currentTime = millis();
+        if(currentTime >= 4000 && currentTime < 6000) {
+            dshotUserInputValue = dshot50;
+        } else if(currentTime >= 6000 && currentTime < 8000) {
+            dshotUserInputValue = dshotidle;
+        } else if(currentTime >= 8000 && currentTime < 10000) {
+            dshotUserInputValue = dshot75;
+        } else if(currentTime >= 10000 && currentTime < 12000) {
+            dshotUserInputValue = dshotidle;
+        } else if(currentTime >= 12000 && currentTime < 14000) {
+            dshotUserInputValue = dshotmax;
+        } else if(currentTime >= 14000 && currentTime < 16000) {
+            dshotUserInputValue = dshotmin;
+        } else if(currentTime >= 16000 && currentTime < 22000) {      
+            dshotUserInputValue = dshotmin + (currentTime-16000)*(dshotmax-dshotmin)/6000.0;        
+        } else if(currentTime >= 24000 && currentTime < 26000) {
+            dshotUserInputValue = dshotidle;
+        } else if(currentTime >= 26000 && currentTime < 28000) {
+            printTelemetry = false;
+            dshotUserInputValue = 0;
+        } 
+    }
 #endif
 
 }
@@ -284,7 +306,13 @@ void receiveTelemtrie(){
             ESC_telemetrie[2] = (SerialBuf[3]<<8)|SerialBuf[4]; // Current
             ESC_telemetrie[3] = (SerialBuf[5]<<8)|SerialBuf[6]; // used mA/h
             ESC_telemetrie[4] = (SerialBuf[7]<<8)|SerialBuf[8]; // eRpM *100
-                  
+            
+            requestTelemetry = true;
+
+            if(!runMQTBSequence) { // Do not update during MQTB sequence.  Slows serial output.
+                updateDisplay();
+            }
+            
     //      Serial.println("Requested Telemetrie");
     //      Serial.print("Temperature (C): ");
     //      Serial.println(ESC_telemetrie[0]); 
@@ -302,7 +330,7 @@ void receiveTelemtrie(){
     //      Serial.println( (ESC_telemetrie[4] * 100 / 7.0) / (ESC_telemetrie[1] / 100.0) );  // 7 = 14 magnet count / 2
     //      Serial.println(" ");
     //      Serial.println(" ");
-
+            
             if(printTelemetry) {
                 Serial.print(millis()); 
                 Serial.print(","); 
@@ -311,11 +339,11 @@ void receiveTelemtrie(){
           //      Serial.print("Voltage (V): ");
                 Serial.print(ESC_telemetrie[1] / 100.0); 
                 Serial.print(",");   
-          //      Serial.print("Current (mA): ");
-                Serial.print(ESC_telemetrie[2] * 100); 
+          //      Serial.print("Current (A): ");
+                Serial.print(ESC_telemetrie[2] / 10.0); 
                 Serial.print(","); 
-          //      Serial.print("eRPM : ");
-                Serial.print(ESC_telemetrie[4] * 100); 
+          //      Serial.print("RPM : ");
+                Serial.print(ESC_telemetrie[4] * 100 / (MOTOR_POLES / 2)); 
                 Serial.print(",");  
                 // Thrust
                 Serial.println(thrust);
@@ -354,9 +382,6 @@ void receiveTelemtrie(){
             if (kv > kvMax) {
                 kvMax = kv;
             }
-
-            updateDisplay();
-            requestTelemetry = true;
           
         }
 

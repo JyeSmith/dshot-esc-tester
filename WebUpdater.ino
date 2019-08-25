@@ -16,7 +16,7 @@ const char* serverIndex = "<form method='POST' action='/update' enctype='multipa
 
 void BeginWebUpdate(void) {
 
-  Serial.println("Begin Webupdater");
+//  Serial.println("Begin Webupdater");
   WiFi.mode(WIFI_AP);
   WiFi.softAP(ssid, password);
 
@@ -55,7 +55,7 @@ void BeginWebUpdate(void) {
   server.begin();
   MDNS.addService("http", "tcp", 80);
 
-  Serial.printf("Ready! Open http://%s.local in your browser\n", host);
+//  Serial.printf("Ready! Open http://%s.local in your browser\n", host);
 }
 
 void HandleWebUpdate(void) {

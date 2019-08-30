@@ -16,7 +16,9 @@ Results form a rewound emax 2306 stator.  Left is with 8 turns and the right ima
 
 **WARNING - If `#define MINIQUADTESTBENCH` is uncommented the test sequence used by https://www.miniquadtestbench.com/ will automatically start!!!**  Below shows the results of testing an original EMAX RS2306 2400KV motor against the same motor wound with 0.5mm wire 8 & 9 turns per tooth.
 
-<img src="/data/EMAX RS2306 2400KV/plots.png" width="600">
+<img src="/data/EMAX RS2306 2400KV/comparison plots 4s.png" width="600">
+
+<img src="/data/EMAX RS2306 2400KV/comparison plots 4s zoomed.png" width="600">
 
 ## BOM
 

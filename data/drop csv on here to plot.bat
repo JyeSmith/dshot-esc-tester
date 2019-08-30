@@ -1,0 +1,1 @@
+python "C:\Users\Jye\Documents\GitHub\dshot-esc-tester\data\thrustPlot.py" %*

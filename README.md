@@ -16,9 +16,17 @@ Results form a rewound emax 2306 stator.  Left is with 8 turns and the right ima
 
 **WARNING - If `#define MINIQUADTESTBENCH` is uncommented the test sequence used by https://www.miniquadtestbench.com/ will automatically start!!!**  Below shows the results of testing an original EMAX RS2306 2400KV motor against the same motor wound with 0.5mm wire 8 & 9 turns per tooth.
 
+<img src="/images/thruststand.jpg" width="600">
+
 <img src="/data/EMAX RS2306 2400KV/comparison plots 4s.png" width="600">
 
 <img src="/data/EMAX RS2306 2400KV/comparison plots 4s zoomed.png" width="600">
+
+6s data below also shows a comparison between single and multistrand windings.
+
+<img src="/data/EMAX RS2306 2400KV/comparison plots 6s.png" width="600">
+
+<img src="/data/EMAX RS2306 2400KV/comparison plots 6s zoomed.png" width="600">
 
 ## BOM
 
@@ -32,3 +40,11 @@ Results form a rewound emax 2306 stator.  Left is with 8 turns and the right ima
 <img src="/pcb/pcb.png" width="600">
 
 ## If you make one I would love to see it.  Please post your pics as an issue or add them to this readme :)
+
+## neohito
+
+<img src="/images/builds/neohito.jpg" width="600">
+
+## Alex
+
+<img src="/images/builds/AlexM1.jpg" width="200"><img src="/images/builds/AlexM2.jpg" width="200"><img src="/images/builds/AlexM3.jpg" width="200">

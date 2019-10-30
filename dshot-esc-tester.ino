@@ -375,7 +375,7 @@ void receiveTelemtrie(){
             }
             
             if (rpm) {                  // Stops weird numbers :|
-                kv = rpm / voltage;
+                kv = rpm / voltage / ( (float(dshotUserInputValue) - dshotmin) / (dshotmax - dshotmin) );
             } else {
                 kv = 0;
             }

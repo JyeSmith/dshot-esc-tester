@@ -21,14 +21,16 @@
 //#define MINIQUADTESTBENCH
 //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-#include <HardwareSerial.h>
+#include "Arduino.h"
+#include <HardwareSerial.h>	
+#include <wire.h>
 #include "SSD1306.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
-#include "Arduino.h"
 #include "esp32-hal.h"
 #include "HX711.h"
+#include "WebUpdater.h"
 
 #define MOTOR_POLES 14
 
@@ -48,7 +50,7 @@ hw_timer_t * timer = NULL;
 
 HardwareSerial MySerial(1);
 
-SSD1306  display(0x3c, 21, 22);  // 21 and 22 are default pins
+SSD1306 display(0x3c, 21, 22);  // 21 and 22 are default pins
 
 uint8_t receivedBytes = 0;
 volatile bool requestTelemetry = false;
@@ -76,36 +78,12 @@ uint32_t rpmMAX = 0;
 uint32_t kv = 0;
 uint32_t kvMax = 0;
 
-void gotTouch8(){
-    dshotUserInputValue = 0;
-    runMQTBSequence = false;
-    printTelemetry = true;
-    } // DIGITAL_CMD_MOTOR_STOP
-void gotTouch9(){
-    dshotUserInputValue = 247;
-    resetMaxMinValues();
-    runMQTBSequence = false;
-    printTelemetry = true;
-    } // 10%
-void gotTouch7(){
-    dshotUserInputValue = 447;
-    resetMaxMinValues();
-    runMQTBSequence = false;
-    printTelemetry = true;
-    } // 20%
-void gotTouch6(){
-    dshotUserInputValue = 1047;
-    resetMaxMinValues();
-    runMQTBSequence = false;
-    printTelemetry = true;
-    } // 50%
-void gotTouch5(){ 
-    dshotUserInputValue = 2047;                 
-    resetMaxMinValues();
-    runMQTBSequence = false;
-    printTelemetry = true;
-    } // 100%
-void gotTouch4(){ 
+void dshotOutput(uint16_t value, bool telemetry);
+void receiveTelemtrie();
+void updateDisplay();
+
+void gotTouch4()
+{ 
     temperatureMax = 0;
     voltageMin = 99;
     currentMax = 0;
@@ -115,8 +93,49 @@ void gotTouch4(){
     runMQTBSequence = false;
     printTelemetry = true;
 }
-void resetMaxMinValues() {
+
+void resetMaxMinValues()
+{
     gotTouch4();
+}
+
+void gotTouch8()
+{
+    dshotUserInputValue = 0; // DIGITAL_CMD_MOTOR_STOP
+    runMQTBSequence = false;
+    printTelemetry = true;
+}
+
+void gotTouch9()
+{
+    dshotUserInputValue = 247; // 10%
+    resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
+}
+
+void gotTouch7()
+{
+    dshotUserInputValue = 447; // 20%
+    resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
+}
+
+void gotTouch6()
+{
+    dshotUserInputValue = 1047; // 50%
+    resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
+}
+
+void gotTouch5()
+{ 
+    dshotUserInputValue = 2047; // 100%                 
+    resetMaxMinValues();
+    runMQTBSequence = false;
+    printTelemetry = true;
 }
 
 void IRAM_ATTR getTelemetry(){
@@ -274,6 +293,20 @@ void loop() {
     }
 #endif
 
+}
+
+uint8_t update_crc8(uint8_t crc, uint8_t crc_seed){
+  uint8_t crc_u, i;
+  crc_u = crc;
+  crc_u ^= crc_seed;
+  for ( i=0; i<8; i++) crc_u = ( crc_u & 0x80 ) ? 0x7 ^ ( crc_u << 1 ) : ( crc_u << 1 );
+  return (crc_u);
+}
+
+uint8_t get_crc8(uint8_t *Buf, uint8_t BufLen){
+  uint8_t crc = 0, i;
+  for( i=0; i<BufLen; i++) crc = update_crc8(Buf[i], crc);
+  return (crc);
 }
 
 void receiveTelemtrie(){
@@ -434,20 +467,6 @@ void dshotOutput(uint16_t value, bool telemetry) {
     
     return;
 
-}
-
-uint8_t update_crc8(uint8_t crc, uint8_t crc_seed){
-  uint8_t crc_u, i;
-  crc_u = crc;
-  crc_u ^= crc_seed;
-  for ( i=0; i<8; i++) crc_u = ( crc_u & 0x80 ) ? 0x7 ^ ( crc_u << 1 ) : ( crc_u << 1 );
-  return (crc_u);
-}
-
-uint8_t get_crc8(uint8_t *Buf, uint8_t BufLen){
-  uint8_t crc = 0, i;
-  for( i=0; i<BufLen; i++) crc = update_crc8(Buf[i], crc);
-  return (crc);
 }
 
 void updateDisplay() {    
